@@ -1,0 +1,41 @@
+name: P2 BSON archived source and host C99 audit
+
+on:
+  push:
+    branches:
+      - audit/a17-pe-bson-dependency-20261104
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bson-source-and-host-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check historical Soong module boundary
+        run: python3 tools/verify_a17_bson_archive.py
+      - name: Compile archived BSON data library as host C99 (not Android)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cc -std=c99 -DMONGO_HAVE_STDINT -fPIC -I src -shared \
+            src/bson.c src/numbers.c -o "$RUNNER_TEMP/libbson-host.so"
+          cat > "$RUNNER_TEMP/bson_smoke.c" <<'EOF'
+          #include "bson.h"
+          int main(void) {
+              bson value;
+              bson_empty(&value);
+              if (bson_size(&value) != 5) return 1;
+              bson_destroy(&value);
+              return 0;
+          }
+          EOF
+          cc -std=c99 -DMONGO_HAVE_STDINT -I src "$RUNNER_TEMP/bson_smoke.c" \
+            -L "$RUNNER_TEMP" -Wl,-rpath,"$RUNNER_TEMP" -lbson-host \
+            -o "$RUNNER_TEMP/bson_smoke"
+          "$RUNNER_TEMP/bson_smoke"
+          echo "PASS: host C99 BSON compile/smoke only; Android17 Soong and vendor consumers NOT tested"
